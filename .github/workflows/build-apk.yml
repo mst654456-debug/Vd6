@@ -1,0 +1,146 @@
+name: Build HTML to APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create minimal Android project with WebView
+        run: |
+          mkdir -p app/src/main/java/com/example/htmlapp
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/assets
+
+          cp -r www/* app/src/main/assets/
+
+          cat << 'EOF' > settings.gradle
+          rootProject.name = "HtmlToApkApp"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > build.gradle
+          buildscript {
+            repositories {
+              google()
+              mavenCentral()
+            }
+            dependencies {
+              classpath 'com.android.tools.build:gradle:8.2.2'
+            }
+          }
+          allprojects {
+            repositories {
+              google()
+              mavenCentral()
+            }
+          }
+          EOF
+
+          cat << 'EOF' > app/build.gradle
+          plugins {
+            id 'com.android.application'
+          }
+
+          android {
+            namespace 'com.example.htmlapp'
+            compileSdk 34
+
+            defaultConfig {
+              applicationId "com.example.htmlapp"
+              minSdk 21
+              targetSdk 34
+              versionCode 1
+              versionName "1.0"
+            }
+
+            buildTypes {
+              release {
+                minifyEnabled false
+              }
+            }
+          }
+
+          dependencies {
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <application
+              android:label="HTML App"
+              android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+              <activity
+                android:name=".MainActivity"
+                android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+          <WebView xmlns:android="http://schemas.android.com/apk/res/android"
+            android:id="@+id/webview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/example/htmlapp/MainActivity.java
+          package com.example.htmlapp;
+
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.appcompat.app.AppCompatActivity;
+
+          public class MainActivity extends AppCompatActivity {
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              setContentView(R.layout.activity_main);
+
+              WebView webView = findViewById(R.id.webview);
+              webView.setWebViewClient(new WebViewClient());
+
+              WebSettings settings = webView.getSettings();
+              settings.setJavaScriptEnabled(true);
+              settings.setDomStorageEnabled(true);
+
+              webView.loadUrl("file:///android_asset/index.html");
+            }
+          }
+          EOF
+
+      - name: Generate Gradle Wrapper and Build APK
+        run: |
+          gradle wrapper --gradle-version 8.2
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          
